@@ -1,0 +1,29 @@
+// Verifiable provenance for raw GraphQL passthrough tools
+// (`<server>_graphql_query`). Mirrors what the Code Mode `*_execute` tools
+// attach via buildCitation, so a query routed through a passthrough still
+// carries `_meta.citation` and shows up in the chat Sources strip.
+import { buildCitation, } from "./provenance";
+/**
+ * Build the `_meta.citation` envelope for a passthrough result. Returns `{}`
+ * when the server declares no source descriptor, so callers can spread it
+ * unconditionally:
+ *
+ *   const cite = await buildPassthroughCitation({ source, server, tool, query, result });
+ *   structuredContent: { ...data, _meta: { ...cite } }
+ */
+export async function buildPassthroughCitation(args) {
+    if (!args.source)
+        return {};
+    const citation = await buildCitation({
+        source: args.source,
+        server: args.server,
+        tool: args.tool,
+        query: args.query,
+        result: args.result,
+        retrievedAt: new Date().toISOString(),
+        recordCount: args.recordCount,
+        dataAccessId: args.dataAccessId,
+    });
+    return { citation };
+}
+//# sourceMappingURL=passthrough-citation.js.map
