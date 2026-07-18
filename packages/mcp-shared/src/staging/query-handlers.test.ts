@@ -340,3 +340,69 @@ describe("createGetSchemaHandler — workspace routing (ADR-006 Phase 0)", () =>
 		).toBe("DATA_ACCESS_ERROR");
 	});
 });
+
+describe("self-describing query errors — schema on 'no such column/table'", () => {
+	const richSchema = () =>
+		json({
+			success: true,
+			schema: {
+				tables: { assoc: { columns: [{ name: "pvalue" }, { name: "beta" }] } },
+			},
+		});
+
+	it("appends the staged schema to a per-server 'no such column' error", async () => {
+		const handler = createQueryDataHandler("DATA_DO", "gwas");
+		const { ns } = makeDo({
+			"/schema": richSchema,
+			"/query": () => json({ success: false, error: "no such column: pval" }),
+		});
+		const res = await handler(
+			{ data_access_id: "gwas_1", sql: "SELECT pval FROM assoc" },
+			{ DATA_DO: ns },
+		);
+		const text = JSON.stringify(res);
+		expect(text).toContain("no such column: pval");
+		expect(text).toContain("assoc(pvalue, beta)");
+		expect(
+			(res.structuredContent as { error: { code: string } }).error.code,
+		).toBe("SQL_EXECUTION_ERROR");
+	});
+
+	it("appends the workspace schema to a workspace 'no such column' error", async () => {
+		const { ns } = makeDo({
+			"/ws/query": () => json({ success: false, error: "no such column: x" }),
+			"/ws/schema": () =>
+				json({
+					success: true,
+					dataset_count: 1,
+					datasets: [
+						{ tables: [{ name: "chembl__t", columns: [{ name: "id" }] }] },
+					],
+				}),
+		});
+		const handler = createQueryDataHandler("DATA_DO", "chembl", {
+			workspaceNamespace: ns,
+		});
+		const res = await handler(
+			{ workspace: "W", sql: "SELECT x FROM chembl__t" },
+			{},
+		);
+		const text = JSON.stringify(res);
+		expect(text).toContain("no such column: x");
+		expect(text).toContain("chembl__t(id)");
+	});
+
+	it("reframes the compound-SELECT cap into an actionable remedy", async () => {
+		const handler = createQueryDataHandler("DATA_DO", "gwas");
+		const { ns } = makeDo({
+			"/schema": richSchema,
+			"/query": () =>
+				json({ success: false, error: "too many terms in compound SELECT" }),
+		});
+		const res = await handler(
+			{ data_access_id: "gwas_1", sql: "SELECT 1 UNION SELECT 2" },
+			{ DATA_DO: ns },
+		);
+		expect(JSON.stringify(res)).toMatch(/batches of at most 8/);
+	});
+});

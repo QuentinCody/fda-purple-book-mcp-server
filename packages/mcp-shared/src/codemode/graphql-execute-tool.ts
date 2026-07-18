@@ -38,9 +38,11 @@ import {
 	type TrimmedIntrospection,
 } from "./graphql-introspection";
 import { buildGraphqlProxySource } from "./graphql-proxy";
+import { registerGraphqlSearchTool } from "./graphql-schema-discovery";
 import { buildGraphqlSchemaSource } from "./graphql-schema-source";
 import { introspectionToSummary } from "./graphql-to-typescript";
 import { createCodeModeError, ErrorCodes } from "./response";
+import { registerVerifyCitationOnce } from "./verify-citation-tool";
 
 // ---------------------------------------------------------------------------
 // Options & result types
@@ -83,6 +85,9 @@ export interface GraphqlExecuteToolOptions {
 	 *  surface with `preamble` `//` lines (they appear in the tool description as
 	 *  SERVER NOTES). See docs/adding-mcp-servers.md "Hybrid GraphQL + REST". */
 	restApiFetch?: ApiFetchFn;
+	/** Optional static ApiCatalog. When the upstream disables introspection,
+	 *  `<prefix>_search` searches this instead of returning the unavailable note. */
+	catalog?: import("./catalog").ApiCatalog;
 }
 
 export interface GraphqlExecuteToolResult {
@@ -170,25 +175,66 @@ interface ExecutionContext {
 		introspection: TrimmedIntrospection | undefined;
 		schemaSource: string | undefined;
 		description: string | undefined;
+		/** Set once when the upstream disables introspection (e.g. NCI PDC's Apollo
+		 *  `introspection: false`) so we don't re-fetch every call and the proxy
+		 *  skips pre-flight (getIntrospection stays undefined → passthrough). */
+		introspectionUnavailable?: boolean;
 	};
 }
 
-/** Ensure introspection is fetched and schema source is built. */
+/** Build the isolate's schema-helper source. Real schema when introspection
+ *  succeeded; an empty one flagged `available:false` when the upstream disables
+ *  introspection (so schema.* exists but reports unavailable). */
+function schemaSourceFor(
+	introspection: TrimmedIntrospection | undefined,
+): string {
+	if (introspection) {
+		return buildGraphqlSchemaSource(JSON.stringify(introspection));
+	}
+	return buildGraphqlSchemaSource(
+		JSON.stringify({ queryType: { name: "Query" }, types: [] }),
+		{
+			available: false,
+			note: "This API disables GraphQL introspection — schema.* discovery is unavailable; write queries directly with gql.query() using field names from its published schema docs.",
+		},
+	);
+}
+
+/** Build the `_execute` tool description — real schema summary, or an
+ *  introspection-unavailable note. */
+function describeFor(
+	ctx: ExecutionContext,
+	introspection: TrimmedIntrospection | undefined,
+): string {
+	const summary = introspection
+		? introspectionToSummary(introspection)
+		: "NOTE: this API disables GraphQL introspection — schema.* discovery is unavailable; use gql.query() with field names from its published schema docs.";
+	return buildGraphqlExecuteDescription(
+		{ ...ctx.options, hasRestApi: !!ctx.options.restApiFetch },
+		summary,
+	);
+}
+
+/** Ensure introspection is fetched and schema source is built.
+ *
+ * If the upstream disables introspection (e.g. NCI PDC's Apollo server), the
+ * fetch throws — degrade to raw passthrough: gql.query() still runs, pre-flight
+ * is skipped (introspection stays undefined so the proxy's getIntrospection
+ * returns undefined), and schema.* reports unavailable. Flagged so we don't
+ * re-attempt the fetch on every call. */
 async function ensureIntrospection(ctx: ExecutionContext): Promise<void> {
-	if (!ctx.cache.introspection) {
-		ctx.cache.introspection = await fetchIntrospection(ctx.gqlFetch);
+	if (!ctx.cache.introspection && !ctx.cache.introspectionUnavailable) {
+		try {
+			ctx.cache.introspection = await fetchIntrospection(ctx.gqlFetch);
+		} catch {
+			ctx.cache.introspectionUnavailable = true;
+		}
 	}
 	if (!ctx.cache.schemaSource) {
-		ctx.cache.schemaSource = buildGraphqlSchemaSource(
-			JSON.stringify(ctx.cache.introspection),
-		);
+		ctx.cache.schemaSource = schemaSourceFor(ctx.cache.introspection);
 	}
 	if (!ctx.cache.description) {
-		const summary = introspectionToSummary(ctx.cache.introspection);
-		ctx.cache.description = buildGraphqlExecuteDescription(
-			{ ...ctx.options, hasRestApi: !!ctx.options.restApiFetch },
-			summary,
-		);
+		ctx.cache.description = describeFor(ctx, ctx.cache.introspection);
 	}
 }
 
@@ -421,6 +467,18 @@ export function createGraphqlExecuteTool(
 					}
 				},
 			);
+			// Sibling discovery tool (#3): shares the lazy introspection cache.
+			registerGraphqlSearchTool(server, {
+				prefix,
+				apiName: options.apiName ?? prefix,
+				gqlFetch,
+				cache,
+				catalog: options.catalog,
+			});
+
+			// Sibling provenance tool: results carry `_meta.citation` integrity
+			// anchors, so the server must also expose the means to re-check them.
+			registerVerifyCitationOnce(server);
 		},
 	};
 }
