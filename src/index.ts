@@ -1,3 +1,4 @@
+import { buildHealthResponse, configureCitationSigning } from "@bio-mcp/shared";
 // FDA Purple Book MCP Server — Code Mode only.
 // Tools: purple_book_search, purple_book_execute, purple_book_query_data, purple_book_get_schema
 import { McpAgent } from "agents/mcp";
@@ -16,6 +17,8 @@ export class MyMCP extends McpAgent<Env> {
     });
 
     async init() {
+
+    	configureCitationSigning(this.env);
         const env = this.env;
         registerQueryData(this.server, env);
         registerGetSchema(this.server, env);
@@ -28,10 +31,7 @@ export default {
         const url = new URL(request.url);
 
         if (url.pathname === "/health") {
-            return new Response("ok", {
-                status: 200,
-                headers: { "content-type": "text/plain" },
-            });
+            return buildHealthResponse("fda-purple-book");
         }
 
         if (url.pathname === "/mcp") {
