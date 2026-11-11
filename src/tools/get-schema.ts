@@ -1,6 +1,7 @@
 import type { McpServer } from "@bio-mcp/shared/mcp";
 import { z } from "zod";
 import { createGetSchemaHandler } from "@bio-mcp/shared/staging/utils";
+import { purpleBookResponse } from "../lib/tool-result";
 
 interface GetSchemaArgs {
     data_access_id?: string;
@@ -14,8 +15,8 @@ interface ExtraWithEnvAndSession {
 export function registerGetSchema(server: McpServer, env?: Partial<Env>): void {
     const handler = createGetSchemaHandler("PURPLE_BOOK_DATA_DO", "purple_book");
 
-    server.registerTool(
-        "purple_book_get_schema",
+    for (const name of ["purple_book_get_schema", "mcp_purple_book_get_schema"]) server.registerTool(
+        name,
         {
             title: "Get Staged Data Schema",
             description:
@@ -33,7 +34,7 @@ export function registerGetSchema(server: McpServer, env?: Partial<Env>): void {
             const handlerArgs: Record<string, unknown> = {
                 data_access_id: args.data_access_id,
             };
-            return handler(handlerArgs, runtimeEnv, extra as Record<string, unknown>);
+            return purpleBookResponse(() => handler(handlerArgs, runtimeEnv, extra as Record<string, unknown>), runtimeEnv, name, extra, args);
         },
     );
 }

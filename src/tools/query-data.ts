@@ -1,6 +1,7 @@
 import type { McpServer } from "@bio-mcp/shared/mcp";
 import { z } from "zod";
 import { createQueryDataHandler } from "@bio-mcp/shared/staging/utils";
+import { purpleBookResponse } from "../lib/tool-result";
 
 interface QueryDataArgs {
     data_access_id: string;
@@ -15,8 +16,8 @@ interface ExtraWithEnv {
 export function registerQueryData(server: McpServer, env?: Partial<Env>): void {
     const handler = createQueryDataHandler("PURPLE_BOOK_DATA_DO", "purple_book");
 
-    server.registerTool(
-        "purple_book_query_data",
+    for (const name of ["purple_book_query_data", "mcp_purple_book_query_data"]) server.registerTool(
+        name,
         {
             title: "Query Staged Purple Book Data",
             description:
@@ -34,7 +35,7 @@ export function registerQueryData(server: McpServer, env?: Partial<Env>): void {
                 sql: args.sql,
                 limit: args.limit,
             };
-            return handler(handlerArgs, runtimeEnv);
+            return purpleBookResponse(() => handler(handlerArgs, runtimeEnv), runtimeEnv, name, extra, args);
         },
     );
 }

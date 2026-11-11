@@ -5,16 +5,19 @@ export class PurpleBookDataDO extends RestStagingDO {
     protected getSchemaHints(data: unknown): SchemaHints | undefined {
         if (!data || typeof data !== "object") return undefined;
 
-        if (Array.isArray(data)) {
-            const sample = data[0];
+        const wrapped = "results" in data && Array.isArray(data.results) ? data.results : undefined;
+        const records = wrapped ?? (Array.isArray(data) ? data : undefined);
+        if (records) {
+            const sample = records[0];
             if (
                 sample &&
                 typeof sample === "object" &&
                 "bla_number" in sample &&
-                ("proprietary_name" in sample || "proper_name" in sample)
+                "applicant" in sample
             ) {
                 return {
-                    tableName: "products",
+                    ...(wrapped ? {} : { tableName: "products" }),
+                    columnTypes: Object.fromEntries(Object.keys(sample).map(key => [key, "TEXT"])),
                     indexes: [
                         "bla_number",
                         "proprietary_name",
@@ -25,7 +28,7 @@ export class PurpleBookDataDO extends RestStagingDO {
                         "marketing_status",
                         "ref_product_proper_name",
                         "product_number",
-                    ],
+                    ].filter(column => column in sample),
                 };
             }
         }

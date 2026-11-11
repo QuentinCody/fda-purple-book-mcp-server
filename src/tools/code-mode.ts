@@ -3,6 +3,7 @@ import { createSearchTool } from "@bio-mcp/shared/codemode/search-tool";
 import { createExecuteTool } from "@bio-mcp/shared/codemode/execute-tool";
 import { purpleBookCatalog } from "../spec/catalog";
 import { createPurpleBookApiFetch } from "../lib/api-adapter";
+import { purpleBookResponse } from "../lib/tool-result";
 
 /**
  * Interface matching what createSearchTool/createExecuteTool .register() expects.
@@ -12,10 +13,15 @@ interface ToolRegisterable {
     tool: (...args: unknown[]) => void;
 }
 
-function toRegisterable(server: McpServer): ToolRegisterable {
+function toRegisterable(server: McpServer, env: CodeModeEnv): ToolRegisterable {
     return {
         tool(...args: unknown[]) {
-            Function.prototype.apply.call(server.tool, server, args);
+            const [base, ...rest] = args;
+            const handler = rest.pop() as (input: unknown, extra: unknown) => ReturnType<typeof purpleBookResponse>;
+            for (const name of [String(base), `mcp_${String(base)}`]) {
+                const respond = (input: unknown, extra: unknown) => purpleBookResponse(() => handler(input, extra), env, name, extra, input);
+                Function.prototype.apply.call(server.tool, server, [name, ...rest, respond]);
+            }
         },
     };
 }
@@ -33,7 +39,7 @@ export function registerCodeMode(server: McpServer, env: CodeModeEnv): void {
     if (!doNamespace || !loader) return;
 
     const apiFetch = createPurpleBookApiFetch();
-    const registerable = toRegisterable(server);
+    const registerable = toRegisterable(server, env);
 
     const searchTool = createSearchTool({
         prefix: "purple_book",
@@ -47,6 +53,10 @@ export function registerCodeMode(server: McpServer, env: CodeModeEnv): void {
         source: { id: "purple_book", name: "FDA Purple Book", url: "https://purplebooksearch.fda.gov", license: "U.S. Public Domain" },
         catalog: purpleBookCatalog,
         apiFetch,
+        preserveApiErrors: true,
+        maxInlineBytes: 30 * 1024,
+        stagingThreshold: 30 * 1024,
+        timeout: 60000,
         doNamespace,
         loader,
     });

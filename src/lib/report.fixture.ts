@@ -1,0 +1,2 @@
+// Synthetic fixture: FDA documents changes first and all products second.
+export const reportFixture = '\uFEFFPurple Book August 2026\r\nReport date,31-Aug-2026\r\nBLA Number,Applicant,Strength,Approval Date,Change\r\n001234,"Company, Inc.",10 mg,1-Aug-26,U\r\n\r\nFull database\r\nBLA Number,Applicant,Strength,Approval Date,Change\r\n001234,"Company, Inc.",10 mg,1-Aug-26,\r\n001234,"Company, Inc.",20 mg,1-Feb-20,\r\n';
